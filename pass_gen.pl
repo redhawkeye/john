@@ -1,4 +1,6 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
+
+use warnings;
 use strict;
 
 #############################################################################
@@ -55,7 +57,7 @@ use MIME::Base64;
 #############################################################################
 my @funcs = (qw(DESCrypt BigCrypt BSDIcrypt md5crypt md5crypt_a BCRYPT BCRYPTx
 		BFegg Raw-MD5 Raw-MD5u Raw-SHA1 Raw-SHA1u msCash LM NT pwdump
-		Raw-MD4 PHPass PO hmac-MD5 IPB2 PHPS MD4p MD4s SHA1p SHA1s
+		Raw-MD4 phpass PO hmac-MD5 IPB2 PHPS MD4p MD4s SHA1p SHA1s
 		mysql-sha1 pixMD5 MSSql05 MSSql12 netntlm cisco4 cisco8 cisco9
 		nsldap nsldaps ns XSHA krb5pa-md5 krb5-18 mysql mssql_no_upcase_change
 		mssql oracle oracle_no_upcase_change oracle11 hdaa netntlm_ess
@@ -66,7 +68,7 @@ my @funcs = (qw(DESCrypt BigCrypt BSDIcrypt md5crypt md5crypt_a BCRYPT BCRYPTx
 		hmac-sha256 hmac-sha384 hmac-sha512 sha1crypt sha256crypt sha512crypt
 		XSHA512 dynamic_27 dynamic_28 pwsafe django drupal7 epi zip
 		episerver_sha1 episerver_sha256 hmailserver ike keepass
-		keychain nukedclan radmin raw-SHA sip SybaseASE
+		keychain nukedclan radmin raw-SHA sip sip_qop SybaseASE
 		wbb3 wpapsk sunmd5 wowsrp django-scrypt aix-ssha1 aix-ssha256
 		aix-ssha512 pbkdf2-hmac-sha512 pbkdf2-hmac-sha256 scrypt
 		rakp osc formspring skey-md5 pbkdf2-hmac-sha1 odf odf-1 office_2007
@@ -124,9 +126,9 @@ my $debug_pcode=0; my $gen_needs; my $gen_needs2; my $gen_needu; my $gen_singles
 #########################################################
 # These global vars settable by command line args.
 #########################################################
-my $arg_utf8 = 0; my $arg_codepage = ""; my $arg_minlen = 0; my $arg_maxlen = 128; my $arg_dictfile = "stdin";
+my $arg_utf8 = 0; my $arg_codepage = ""; my $arg_minlen = 0; my $arg_maxlen = 128; my $arg_maxuserlen = 20; my $arg_dictfile = "stdin";
 my $arg_count = 1500, my $argsalt, my $argiv, my $argcontent; my $arg_nocomment = 0; my $arg_hidden_cp; my $arg_loops=-1;
-my $arg_tstall = 0; my $arg_genall = 0; my $arg_nrgenall = 0; my $argmode; my $arguser; my $arg_outformat="normal";
+my $arg_tstall = 0; my $arg_genall = 0; my $arg_nrgenall = 0; my $argmode; my $arguser; my $arg_usertab; my $arg_outformat="normal";
 my $arg_help = 0;
 # these are 'converted' from whatever the user typed in for $arg_outformat
 my $bVectors = 0; my $bUserIDs=1; my $bFullNormal=1;
@@ -138,6 +140,7 @@ GetOptions(
 	'nocomment!'       => \$arg_nocomment,
 	'minlength=n'      => \$arg_minlen,
 	'maxlength=n'      => \$arg_maxlen,
+	'maxuserlen=n'     => \$arg_maxuserlen,
 	'salt=s'           => \$argsalt,
 	'iv=s'             => \$argiv,
 	'content=s'        => \$argcontent,
@@ -150,6 +153,7 @@ GetOptions(
 	'nrgenall!'        => \$arg_nrgenall,
 	'outformat=s'      => \$arg_outformat,
 	'user=s'           => \$arguser,
+	'usertab!'         => \$arg_usertab,
 	'help+'            => \$arg_help
 	) || usage();
 
@@ -228,6 +232,7 @@ usage: $name [-codepage=CP] [-option[s]] HashType [...] [<wordfile]
     -content <s>  Force a single content
     -mode <s>     Force mode (zip, mode 1..3, rar4 modes 1..10, etc)
     -user <s>     Provide a fixed user name, vs random user name.
+    -usertab      Input lines are <user>\\t<password> instead of <password>
     -outformat<s> output format. 'normal' 'vectors' 'raw' 'user' [normal]
 $hidden_opts
 
@@ -327,6 +332,13 @@ if (@ARGV == 1) {
 				next if (/^#!comment/);
 				chomp;
 				s/\r$//;  # strip CR for non-Windows
+				if ($arg_usertab)
+				{
+					my ($this_user, $this_plain) = split(/\t/, $_, 2);
+					next unless defined($this_plain);
+					$arguser = $this_user;
+					$_ = $this_plain;
+				}
 				#my $line_len = length($_);
 				my $line_len = utf16_len($_);
 				next if $line_len > $arg_maxlen || $line_len < $arg_minlen;
@@ -656,9 +668,9 @@ sub LANMan {
 }
 
 #############################################################################
-# This function does PHPass/Wordpress algorithm.
+# This function does phpass/WordPress algorithm.
 #############################################################################
-sub PHPass_hash {
+sub phpass_hash {
 	my ($pw, $cost, $salt) = @_;
 	$cost = 1<<$cost;
 	my $h = md5($salt.$pw);
@@ -668,7 +680,7 @@ sub PHPass_hash {
 	return $h;
 }
 # this helper converts 11 into 9, 12 into A, 13 into B, etc. This is the byte
-# signature for PHPass, which ends up being 1<<num (num being 7 to 31)
+# signature for phpass, which ends up being 1<<num (num being 7 to 31)
 sub to_phpbyte {
 	if ($_[0] <= 11) {
 		return 0+($_[0]-2);
@@ -1179,6 +1191,7 @@ sub bsdicrypt {
 	return "_".Crypt::UnixCrypt_XS::int24_to_base64($rounds).$salt.Crypt::UnixCrypt_XS::block_to_base64($h);
 }
 sub md5crypt {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(-8);
 	return md5crypt_hash($_[1], $salt, "\$1\$");
 }
@@ -1221,17 +1234,21 @@ sub bfx_fix_pass {
 	}
 }
 sub bcryptx {
+	$out_username = get_username($arg_maxuserlen);
 	my $fixed_pass = bfx_fix_pass($_[1]);
 	require Crypt::Eksblowfish::Bcrypt;
 	$salt = get_salt(16,16,\@i64);
-	my $hash = Crypt::Eksblowfish::Bcrypt::bcrypt_hash({key_nul => 1, cost => 5, salt => $salt, }, $fixed_pass);
-	return "\$2x\$05\$".Crypt::Eksblowfish::Bcrypt::en_base64($salt).Crypt::Eksblowfish::Bcrypt::en_base64($hash);
+	my $cost = sprintf("%02d", get_loops(5));
+	my $hash = Crypt::Eksblowfish::Bcrypt::bcrypt_hash({key_nul => 1, cost => $cost, salt => $salt, }, $fixed_pass);
+	return "\$2x\$${cost}\$".Crypt::Eksblowfish::Bcrypt::en_base64($salt).Crypt::Eksblowfish::Bcrypt::en_base64($hash);
 }
 sub bcrypt {
+	$out_username = get_username($arg_maxuserlen);
 	require Crypt::Eksblowfish::Bcrypt;
 	$salt = get_salt(16,16,\@i64);
-	my $hash = Crypt::Eksblowfish::Bcrypt::bcrypt_hash({key_nul => 1, cost => 5, salt => $salt, }, $_[1]);
-	return "\$2a\$05\$".Crypt::Eksblowfish::Bcrypt::en_base64($salt).Crypt::Eksblowfish::Bcrypt::en_base64($hash);
+	my $cost = sprintf("%02d", get_loops(5));
+	my $hash = Crypt::Eksblowfish::Bcrypt::bcrypt_hash({key_nul => 1, cost => $cost, salt => $salt, }, $_[1]);
+	return "\$2a\$${cost}\$".Crypt::Eksblowfish::Bcrypt::en_base64($salt).Crypt::Eksblowfish::Bcrypt::en_base64($hash);
 }
 sub _bfegg_en_base64($) {
 	my($bytes) = @_;
@@ -1254,30 +1271,38 @@ sub bfegg {
 	return undef;
 }
 sub raw_md5 {
+	$out_username = get_username($arg_maxuserlen);
 	return md5_hex($_[1]);
 }
 sub raw_md5u {
+	$out_username = get_username($arg_maxuserlen);
 	return md5_hex(encode("UTF-16LE",$_[0]));
 }
 sub raw_sha1 {
+	$out_username = get_username($arg_maxuserlen);
 	return sha1_hex($_[1]);
 }
 sub raw_sha1u {
+	$out_username = get_username($arg_maxuserlen);
 	return sha1_hex(encode("UTF-16LE",$_[0]));
 }
 sub raw_sha256 {
+	$out_username = get_username($arg_maxuserlen);
 	return sha256_hex($_[1]);
 }
 sub cisco4 {
 	return "\$cisco4\$".base64_wpa(sha256($_[1]));
 }
 sub raw_sha224 {
+	$out_username = get_username($arg_maxuserlen);
 	return sha224_hex($_[1]);
 }
 sub raw_sha384 {
+	$out_username = get_username($arg_maxuserlen);
 	return sha384_hex($_[1]);
 }
 sub raw_sha512 {
+	$out_username = get_username($arg_maxuserlen);
 	return sha512_hex($_[1]);
 }
 sub cisco8 {
@@ -1366,8 +1391,8 @@ sub krb5_18 {
 	# dump_stuff_msg() calls, and appears to be the end result that is used.
 	$salt = get_salt(12,-64);
 	my $pbk = pp_pbkdf2($_[0], $salt, 4096, "sha1",32,64);
-	require Crypt::OpenSSL::AES;
-	my $crypt = Crypt::OpenSSL::AES->new($pbk);
+	require Crypt::Cipher::AES;
+	my $crypt = Crypt::Cipher::AES->new($pbk);
 	# 6b65726265726f737b9b5b2b93132b93 == 'kerberos' and 8 other bytes
 	my $output1 = $crypt->encrypt(pack("H*","6b65726265726f737b9b5b2b93132b93"));
 	my $output2 = $crypt->encrypt($output1);
@@ -1376,8 +1401,8 @@ sub krb5_18 {
 sub lp {
 	$salt = get_salt(32, -32, \@userNames);
 	my $pbk = pp_pbkdf2($_[0], $salt, 500, "sha256", 32, 64);
-	require Crypt::OpenSSL::AES;
-	my $crypt = Crypt::OpenSSL::AES->new($pbk);
+	require Crypt::Cipher::AES;
+	my $crypt = Crypt::Cipher::AES->new($pbk);
 	$h = unpack("H*", $crypt->encrypt("lastpass rocks\x02\x02"));
 	return "\$lp\$$salt\$$h";
 }
@@ -1385,11 +1410,11 @@ sub lastpass {
 	my $iter = get_loops(500);
 	$salt = get_salt(32, -32, \@userNames);
 	my $pbk = pp_pbkdf2($_[0], $salt, $iter, "sha256", 32, 64);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
 	my $dat = $salt;
 	my $iv = "\0"x16;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $pbk, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'null');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $pbk, -iv => $iv, -cipher => "Crypt::Cipher::AES", -header => 'none', -padding => 'null');
 	$h = base64($crypt->encrypt($dat));
 	return "\$lastpass\$$salt\$$iter\$$h";
 }
@@ -1402,9 +1427,10 @@ sub odf {
 	$content = get_content(-1024, -4095);
 	my $s = sha1($_[0]);
 	my $key = pp_pbkdf2($s, $salt, $itr, "sha1", 16,64);
-	require Crypt::OpenSSL::Blowfish::CFB64;
-	my $crypt = Crypt::OpenSSL::Blowfish::CFB64->new($key, $iv);
-	my $output = $crypt->decrypt($content);
+	require Crypt::Cipher::Blowfish;
+	require Crypt::Mode::CFB;
+	my $crypt = Crypt::Mode::CFB->new('Blowfish');
+	my $output = $crypt->decrypt($content, $key, $iv);
 	$s = sha1($output);
 	return "\$odf\$*0*0*$itr*16*".unpack("H*",$s)."*8*".unpack("H*",$iv)."*16*".unpack("H*",$salt)."*0*".unpack("H*",$content);
 }
@@ -1418,10 +1444,10 @@ sub odf_1 {
 	while (length($content)%16 != 0) { $content .= "\x0" } # must be even 16 byte padded.
 	my $s = sha256($_[0]);
 	my $key = pp_pbkdf2($s, $salt, $itr, "sha1", 32,64);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
 	# set -padding to 'none'. Otherwise a Crypt::CBC->decrypt() padding removal will bite us, and possibly strip off bytes.
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -iv => $iv, -cipher => "Crypt::Cipher::AES", -header => 'none', -padding => 'none');
 	my $output = $crypt->decrypt($content);
 	$s = sha256($output);
 	return "\$odf\$*1*1*$itr*32*".unpack("H*",$s)."*16*".unpack("H*",$iv)."*16*".unpack("H*",$salt)."*0*".unpack("H*",$content);
@@ -1432,9 +1458,9 @@ sub _office_2k10_EncryptUsingSymmetricKeyAlgorithm {
 	# we handle ALL padding.
 	while (length($data)<$len) {$data.="\0";} $data = substr($data,0,$len);
 	while (length($key)<$keysz) {$key.="\0";} $key = substr($key,0,$keysz);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -keysize => $keysz, -key => $key, -iv => $salt, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -keysize => $keysz, -key => $key, -iv => $salt, -cipher => "Crypt::Cipher::AES", -header => 'none', -padding => 'none');
 	return $crypt->encrypt($data);
 }
 # same function as the GenerateAgileEncryptionKey[512]() in the JtR office format
@@ -1482,8 +1508,8 @@ sub office_2007 {
 	}
 	$h = sha1($h."\0\0\0\0");
 	$h = substr(sha1($h^"6666666666666666666666666666666666666666666666666666666666666666"),0,16);
-	require Crypt::OpenSSL::AES;
-	my $crypt = Crypt::OpenSSL::AES->new($h);
+	require Crypt::Cipher::AES;
+	my $crypt = Crypt::Cipher::AES->new($h);
 	my $hash = $crypt->encrypt(substr(sha1(substr($crypt->decrypt($randdata),0,16)),0,16));
 	return "\$office\$*2007*20*128*16*".unpack("H*",$salt)."*".unpack("H*",$randdata)."*".unpack("H*",$hash)."00000000";
 }
@@ -1515,10 +1541,10 @@ sub o5logon {
 	my $crpt = get_content(32);
 	my $plain = get_iv(8) .  "\x08\x08\x08\x08\x08\x08\x08\x08";
 	my $key = sha1($_[1].$salt) . "\0\0\0\0";
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
 	my $iv = substr($crpt, 16, 16);
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 24, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 24, -iv => $iv, -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	$crpt .= $crypt->encrypt($plain);
 	$crpt = substr($crpt, 0, 48);
 	$crpt = uc unpack("H*",$crpt);
@@ -1574,7 +1600,7 @@ sub raw_keccak256 {
 	return "\$keccak256\$".unpack("H*",keccak_256($_[1]));
 }
 sub leet {
-	my $u = get_username(20);
+	my $u = get_username($arg_maxuserlen);
 	my $h = unpack("H*", sha512($_[0].$u) ^ whirlpool($u.$_[0]));
 	$out_username = $u;
 	return "$u\$$h";
@@ -1615,9 +1641,9 @@ sub strip {
 	my $dat = "\x04\0\x01\x01\x10\x40\x20\x20\x1a\x4f\xed\x2b\0\0\0\x2d\0\0\0\0\0\0\0\0\0\0\0\x25\0\0\0\x04\0\0\0\0\0\0\0\0\0\0\0\x01\0\0\0\x07\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x1a\x4f\xed\x2b\x00\x2d\xe2\x24\x05\x00\x00\x00\x0a\x03\xbe\x00\x00\x00\x00\x2c\x03\xeb\x03\xe6\x03\xe1\x03\xdc\x03\xd7\x03\xd2\x03\xcd\x03\xc8\x03\xc3\x03\xbe";
 	$dat .= "\0"x828;
 	$dat .= "\x00\x2b\x29\x00\x00\x00\x29\x27\x00\x00\x00\x27\x25\x00\x00\x00\x26\x23\x00\x00\x00\x24\x21\x00\x00\x00\x22\x1f\x00\x00\x00\x21\x1d\x00\x00\x00\x18\x1a\x00\x00\x00\x0d\x12\x00\x00\x00\x0a\x08";
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 32, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 32, -iv => $iv, -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	$h = substr($crypt->encrypt($dat), 0, 32+960);
 	$salt = unpack("H*",$salt);
 	$h = unpack("H*",$h);
@@ -1648,9 +1674,9 @@ sub _aes_xts {
 	my $t = $_[2];	# tweak (must be provided)
 	my $decr = $_[4];
 	if (!defined($decr)) { $decr = 0; }
-	require Crypt::OpenSSL::AES;
-	my $cipher1 = new Crypt::OpenSSL::AES($key1);
-	my $cipher2 = new Crypt::OpenSSL::AES($key2);
+	require Crypt::Cipher::AES;
+	my $cipher1 = new Crypt::Cipher::AES($key1);
+	my $cipher2 = new Crypt::Cipher::AES($key2);
 	$t = $cipher2->encrypt($t);
 	for (my $cnt = 0; ; ) {
 		my $tmp = substr($c, 16*$cnt, 16);
@@ -1685,9 +1711,9 @@ sub _tc_aes_128_xts {
 	my $t = $_[2];	# tweak (must be provided)
 	my $decr = $_[3];
 	if (!defined($decr)) { $decr = 0; }
-	require Crypt::OpenSSL::AES;
-	my $cipher1 = new Crypt::OpenSSL::AES($key1);
-	my $cipher2 = new Crypt::OpenSSL::AES($key2);
+	require Crypt::Cipher::AES;
+	my $cipher1 = new Crypt::Cipher::AES($key1);
+	my $cipher2 = new Crypt::Cipher::AES($key2);
 	$t = $cipher2->encrypt($t);
 	for (my $cnt = 0; ; ) {
 		my $tmp = substr($c, 16*$cnt, 16);
@@ -1857,9 +1883,9 @@ sub _gen_key_rar4 {
 	my $key = substr($ctx->digest, 0, 16); # key is first 16 bytes (swapped)
 	$key = pack("V*", unpack("N*",$key));  # swap the 4 uint32_t values.
 
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	while (length($raw_input) % 16 != 0) { $raw_input .= "\x00"; }
 	return $crypt->encrypt($raw_input);
 }
@@ -1942,6 +1968,28 @@ sub sip {
 	return "\$sip\$*$serverIP*$clientIP*$user*$realm*$method*$URIpart1*$clientIP**$nonce****MD5*$h";
 }
 
+sub sip_qop {
+	my $IPHead = "192.168." . (int(rand(253))+1) . ".";
+	my $serverIP = $IPHead . (int(rand(253))+1);
+	my $clientIP = $IPHead . (int(rand(253))+1);
+	my $user = randstr(5, \@chrAsciiNum);
+	my $realm = "asterisk";
+	my $method = "REGISTER";
+	my $URIpart1 = "sip";
+	my $nonce = randstr(32, \@chrHexLo);
+	my $uri = "$URIpart1:$clientIP";
+	my $qop = "auth";
+	my $nonce_count = "00000001";
+	my $cnonce = randstr(8, \@chrHexLo);
+
+	my $static_hash = md5_hex($method.":".$uri);
+	my $dynamic_hash_data = "$user:$realm:";
+	my $static_hash_data = ":$nonce:$nonce_count:$cnonce:$qop:$static_hash";
+	my $dyna_hash = md5_hex($dynamic_hash_data.$_[0]);
+	my $h = md5_hex($dyna_hash.$static_hash_data);
+	return "\$sip\$*$serverIP*$clientIP*$user*$realm*$method*$URIpart1*$clientIP**$nonce*$cnonce*$nonce_count*$qop*MD5*$h";
+}
+
 sub bitlocker {
 	require Crypt::AuthEnc::CCM;
 	my $itr = get_loops(1048576);
@@ -1981,7 +2029,7 @@ sub money_md5 {
 	for ($i = 0; $i < length $pw; ++$i) {
 		my $c = substr($pw, $i, 1);
 		if ( ord($c) >= ord('a') && ord($c) <= ord('z')) {
-			 $c = chr(ord($c)-0x20); 
+			 $c = chr(ord($c)-0x20);
 		}
 		$c = chr(ord($c) % 0x80);
 		substr($pw, $i, 1) = $c;
@@ -2001,7 +2049,7 @@ sub money_sha1 {
 	for ($i = 0; $i < length $pw; ++$i) {
 		my $c = substr($pw, $i, 1);
 		if ( ord($c) >= ord('a') && ord($c) <= ord('z')) {
-			 $c = chr(ord($c)-0x20); 
+			 $c = chr(ord($c)-0x20);
 		}
 		$c = chr(ord($c) % 0x80);
 		substr($pw, $i, 1) = $c;
@@ -2068,14 +2116,12 @@ sub encfs {
 	}
 	$iv = substr(Digest::SHA::hmac_sha1(substr($iv,0,24), substr($h,0,$key_sz/8)), 0, 16);
 
-	require Crypt::OpenSSL::AES;
-	require Crypt::CFB;
-	#my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => $key_sz, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'none');
-	#my $crypt = Crypt::CFB->new(-literal_key => 1, -key => $h, -keysize => $key_sz, -iv => $iv, -algo => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'zero');
+	require Crypt::Cipher::AES;
+	require Crypt::Mode::CFB; # Should be CFB64, not sure how to set?
 	$h = substr($h, 0, 24);
 	print "key=".unpack("H*",$h)."\n";
 	print "iv=".unpack("H*",$iv)."\n";
-	my $crypt = Crypt::CFB->new($h, "Crypt::OpenSSL::AES", $iv);
+	my $crypt = Crypt::Mode::CFB->new('AES');
 	my $h2 = $crypt->decrypt(substr($data,4), $h, $iv);
 	print unpack("H*", substr($data,4))."  ".unpack("H*", $h2)."\n";
 
@@ -2355,9 +2401,9 @@ sub keyring {
 	}
 	my $key = substr($h, 0, 16);
 	my $iv = substr($h, 16, 16);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => "Crypt::Cipher::AES", -header => 'none', -padding => 'none');
 	$h = $crypt->encrypt($data);
 	$h = unpack("H*", $h);
 	$s = unpack("H*", $s);
@@ -2392,9 +2438,9 @@ sub iwork {
 	#$blob_dat = pack("H*", "c6ef9b77af9e4d356e3dc977910b8cb3c3c1f2db89430ec36232078c2cefdec7");
 	$blob_dat .= sha256($blob_dat);
 	$h = pp_pbkdf2($_[0], $s, $iter, "sha1", 16, 64);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $h, -keysize => 16, -iv => $iv, -cipher => "Crypt::OpenSSL::AES", -header => 'none', -padding => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $h, -keysize => 16, -iv => $iv, -cipher => "Crypt::Cipher::AES", -header => 'none', -padding => 'none');
 	my $output = $crypt->encrypt($blob_dat);
 	return "\$iwork\$1\$2\$1\$$iter\$".unpack("H*",$s)."\$".unpack("H*",$iv)."\$".unpack("H*",$output);
 }
@@ -2450,9 +2496,9 @@ sub agilekeychain {
 	my $dat=randstr(1040-32); # not sure what would be here, but JtR does not do anything with it.
 	$dat .= $iv;
 	my $key = pp_pbkdf2($_[1], $salt, $iterations,"sha1",16, 64);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 16, -iv => $iv, -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	my $h = $crypt->encrypt("\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10");
 	$dat .= substr($h,0,16);
 
@@ -2467,9 +2513,9 @@ sub bitcoin {
 	for (my $i = 1; $i < $rounds; $i++) {
 		$h = sha512($h);
 	}
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => substr($h,0,32), -keysize => 32, -iv => substr($h,32,16), -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => substr($h,0,32), -keysize => 32, -iv => substr($h,32,16), -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	return '$bitcoin$96$'.substr(unpack("H*", $crypt->encrypt($master)),0,96).'$16$'.unpack("H*", $salt).'$'.$rounds.'$2$00$2$00';
 }
 sub azuread {
@@ -2544,9 +2590,9 @@ sub blockchain {
 	my $data;
 	my $iv = get_salt(16);
 	my $key = pp_pbkdf2($_[1], $iv, 10,"sha1",32, 64);
-	require Crypt::OpenSSL::AES;
+	require Crypt::Cipher::AES;
 	require Crypt::CBC;
-	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 32, -iv => $iv, -cipher => 'Crypt::OpenSSL::AES', -header => 'none');
+	my $crypt = Crypt::CBC->new(-literal_key => 1, -key => $key, -keysize => 32, -iv => $iv, -cipher => 'Crypt::Cipher::AES', -header => 'none');
 	my $h = $crypt->encrypt($unenc);
 	$data = $iv.substr($h,0,$len);
 	return '$blockchain$'.length($data).'$'.unpack("H*", $data);
@@ -2587,9 +2633,10 @@ sub sxc {
 	my $len2 = floor(length($content)/20) * 20;
 	$h = sha1($_[0]);
 	my $key = pp_pbkdf2($h, $salt, $r, "sha1", 16 , 64);
-	require Crypt::OpenSSL::Blowfish::CFB64;
-	my $crypt = Crypt::OpenSSL::Blowfish::CFB64->new($key, $iv);
-	my $output = $crypt->decrypt($content);
+	require Crypt::Cipher::Blowfish;
+	require Crypt::Mode::CFB;
+	my $crypt = Crypt::Mode::CFB->new('Blowfish');
+	my $output = $crypt->decrypt($content, $key, $iv);
 	my $res = sha1_hex(substr($output, 0, $len2));
 	return "\$sxc\$*0*0*$r*16*$res*8*".unpack("H*",$iv)."*16*".unpack("H*",$salt)."*$len2*$len*".unpack("H*",$content);
 }
@@ -2796,6 +2843,7 @@ sub mscash2 {
 	return '$DCC2$'."$iter#$out_username#".pp_pbkdf2_hex($key,$salt,$iter,"sha1",16,64);
 }
 sub lm {
+	$out_username = get_username($arg_maxuserlen);
 	my $p = $_[0];
 	if (length($p)>14) { $p = substr($p,0,14);}
 	$out_uc_pass = 1; $out_extras = 1;
@@ -2805,12 +2853,14 @@ sub nt {
 	return "\$NT\$".unpack("H*",md4(encode("UTF-16LE", $_[0])));
 }
 sub pwdump {
+	$out_username = get_username($arg_maxuserlen);
 	my $lm = unpack("H*",LANMan(length($_[0]) <= 14 ? $_[0] : ""));
 	my $nt = unpack("H*",md4(encode("UTF-16LE", $_[0])));
 	$out_extras = 0;
 	return "0:$lm:$nt";
 }
 sub raw_md4 {
+	$out_username = get_username($arg_maxuserlen);
 	return md4_hex($_[1]);
 }
 sub mediawiki {
@@ -2827,7 +2877,7 @@ sub formspring {
 }
 sub phpass {
 	$salt = get_salt(8);
-	my $h = PHPass_hash($_[1], 11, $salt);
+	my $h = phpass_hash($_[1], 11, $salt);
 	return "\$P\$".to_phpbyte(11).$salt.substr(base64i($h),0,22);
 }
 sub po {
@@ -2890,11 +2940,13 @@ sub md5crypt_hash {
 	return $ret;
 }
 sub md5crypt_a {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(8);
 	$h = md5crypt_hash($_[1], $salt, "\$apr1\$");
 	return $h;
 }
 sub md5crypt_smd5 {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(8);
 	$h = md5crypt_hash($_[1], $salt, "");
 	return "{smd5}$h";
@@ -3240,6 +3292,7 @@ sub sha512crypt {
 	return "\$6\$$salt\$$bin";
 }
 sub sha1crypt {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(8);
 	my $loops = get_loops(5000);
 	# actual call to pbkdf1 (that is the last 1 param, it says to use pbkdf1 logic)
@@ -3373,10 +3426,12 @@ sub mssql_no_upcase_change {
 }
 
 sub nsldap {
+	$out_username = get_username($arg_maxuserlen);
 	$h = sha1($_[0]);
 	return "{SHA}".base64($h);
 }
 sub nsldaps {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(8);
 	$h = sha1($_[1],$salt);
 	$h .= $salt;
@@ -3389,6 +3444,7 @@ sub openssha {
 	return "{SSHA}".base64($h);
 }
 sub salted_sha1 {
+	$out_username = get_username($arg_maxuserlen);
 	$salt = get_salt(-16, -128);
 	$h = sha1($_[1],$salt);
 	$h .= $salt;
@@ -3542,7 +3598,7 @@ sub netlmv2 {
 	my $pwd = $_[1];
 	my $nthash = md4(encode("UTF-16LE", $pwd));
 	my $domain = get_salt(15);
-	my $user = get_username(20);
+	my $user = get_username($arg_maxuserlen);
 	my $identity = Encode::encode("UTF-16LE", uc($user).$domain);
 	my $s_challenge = get_iv(8);
 	my $c_challenge = get_content(8);
@@ -3554,7 +3610,7 @@ sub netlmv2 {
 sub netntlmv2 {
 	my $pwd = $_[1];
 	my $nthash = md4(encode("UTF-16LE", $pwd));
-	my $user = get_username(20);
+	my $user = get_username($arg_maxuserlen);
 	my $domain = get_salt(15);
 	my $identity = Encode::encode("UTF-16LE", uc($user).$domain);
 	my $s_challenge = get_iv(8);
@@ -3571,7 +3627,7 @@ sub mschapv2 {
 	import Crypt::ECB qw(encrypt);
 	my $pwd = $_[1];
 	my $nthash = md4(encode("UTF-16LE", $pwd));
-	my $user = get_username(20);
+	my $user = get_username($arg_maxuserlen);
 	my $p_challenge = get_iv(16);
 	my $a_challenge = get_content(16);
 	my $ctx = Digest::SHA->new('sha1');
@@ -3623,14 +3679,17 @@ sub django {
 	return "\$django\$\*1\*pbkdf2_sha256\$$loops\$$salt\$".base64(pp_pbkdf2($_[1], $salt, $loops, "sha256", 32, 64));
 }
 sub django_scrypt {
+	$out_username = get_username($arg_maxuserlen);
 	require Crypt::ScryptKDF;
 	import Crypt::ScryptKDF qw(scrypt_b64);
 	$salt=get_salt(12,12,\@i64);
-	my $N=14; my $r=8; my $p=1; my $bytes=64;
+	my $N = get_loops(14);
+	my $r=8; my $p=1; my $bytes=64;
 	my $h = scrypt_b64($_[1],$salt,1<<$N,$r,$p,$bytes);
 	return "scrypt\$$salt\$$N\$$r\$$p\$$bytes\$$h";
 }
 sub scrypt {
+	$out_username = get_username($arg_maxuserlen);
 	require Crypt::ScryptKDF;
 	import Crypt::ScryptKDF qw(scrypt_raw);
 	$salt=get_salt(12,-64,\@i64);
@@ -3877,7 +3936,7 @@ sub pad_md64 {
 
 sub dynamic_17 { #dynamic_17 --> phpass ($P$ or $H$)	phpass
 	$salt=get_salt(8);
-	my $h = PHPass_hash($_[1], 11, $salt);
+	my $h = phpass_hash($_[1], 11, $salt);
 	return "\$dynamic_17\$".substr(base64i($h),0,22)."\$".to_phpbyte(11).$salt;
 }
 sub dynamic_19 { #dynamic_19 --> Cisco PIX (MD5)

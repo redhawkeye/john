@@ -1,17 +1,12 @@
-# John the Ripper 1.8.0.13-jumbo-1-bleeding-0abfc74 2018-05-15 08:39:32
-Ini adalah binary dari john the ripper versi jumbo yang di recompile dari system backbox 5 (Ubuntu 16.04).
-Binary ini sengaja saya recompile karena john the ripper bawaan dari backbox 5 sendiri masih menggunakan john versi terdahulu.
+# John the Ripper 1.9.0-jumbo-1+bleeding-47a8a9b98 2019-08-26 20:19:16
+Ini adalah binary dari john the ripper versi jumbo yang di recompile dari system backbox 6 (Ubuntu 18.04).
+Binary ini sengaja saya recompile karena john the ripper bawaan dari backbox 6 sendiri masih menggunakan john versi terdahulu.
 
 # Cara installasi
 1. ```sudo su```
-2. ```apt-get install openssl libgmp-dev libgomp1 libcompress-raw-lzma-perl```
+2. ```apt-get install libssl-dev ocl-icd-libopencl1 libgomp1 libcompress-raw-lzma-perl```
 3. ```cd /opt```
 4. ```git clone https://github.com/redhawkeye/john```
-5. ```cd john/```
-6. ```mv librexgen.so.2.0.8 /usr/local/lib/```
-7. ```ln -s /usr/local/lib/librexgen.so.2.0.8 /usr/local/lib/librexgen.so.2.0```
-8. ```ln -s /usr/local/lib/librexgen.so.2.0.8 /usr/local/lib/librexgen.so```
-9. ```ldconfig```
 
 # Cara mengeksekusi
 1. ```/opt/john/john```
